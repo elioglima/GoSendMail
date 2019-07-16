@@ -17,6 +17,10 @@ import (
 
 func Instalar() {
 
+	logs.DebugSucesso = true
+	logs.DebugErro = true
+	logs.DebugOrigem = true
+
 	logs.Atencao("Processo de instalação iniciando.")
 
 	Params := GoMysql.ParamsConexaoST{}

@@ -5,6 +5,10 @@ import (
 	"GoLibs/logs"
 	"GoMysql/GoMysql"
 	"net/mail"
+	"os"
+	"strconv"
+	"strings"
+	"time"
 )
 
 /*
@@ -62,12 +66,54 @@ func Executa() {
 		p.Subj = GoMysql.ValueStr(Result, "assunto")
 		p.Body = GoMysql.ValueStr(Result, "mensagem")
 
-		logs.Atencao("Enviando email.")
-		p.To = mail.Address{"Diretoria", "diretoria@maxtime.info"}
-		GoLibs.SendSMTPMail(p)
+		sSQL := "select * from listaenvio where codestatus = 0 limit 0,50"
+		RecordCount, Rlistacontatos, err := Conexao.Query(sSQL)
+		if err != nil {
+			logs.Erro(err)
+			return
+		}
+
+		if RecordCount == 0 {
+			logs.Erro("Nenhuma tarefa localizada")
+			return
+		}
+
+		for _, contato := range Rlistacontatos {
+			email := GoMysql.ValueStr(contato, "email")
+			p.To = mail.Address{email, email}
+
+			code, message, err := GoLibs.SendSMTPMail(p)
+
+			if strings.Contains(err.Error(), "Voce ultrapassou o limite") {
+				logs.Rosa("code", code)
+				logs.Rosa("message", message)
+				logs.Rosa("err", err)
+				time.Sleep(20 * time.Second)
+				os.Exit(0)
+			}
+
+			if err != nil {
+				logs.Erro("e-mail", email, err)
+				sSQL = "update listaenvio set "
+				sSQL += " enviodata = current_date()"
+				sSQL += " ,codestatus = 2"
+				sSQL += " ,envioerro = 1"
+				sSQL += " ,enviotentativas = enviotentativas+1"
+				sSQL += " where id = " + strconv.Itoa(GoMysql.ValueInt(contato, "id"))
+			} else {
+				logs.Atencao("e-mail", email, "enviado")
+				sSQL = " delete from listaenvio "
+				sSQL += " where id = " + strconv.Itoa(GoMysql.ValueInt(contato, "id"))
+			}
+
+			if _, err := Conexao.Execute(sSQL); err != nil {
+				logs.Erro(err)
+			}
+
+		}
 
 	}
 
-	logs.Sucesso("Processo de instalação com sucesso.")
+	logs.Sucesso("Processo de envio finalizado com sucesso.")
 
 }
