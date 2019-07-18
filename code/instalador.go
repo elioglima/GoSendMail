@@ -2,7 +2,7 @@ package code
 
 import (
 	"GoLibs/logs"
-	"GoMysql/GoMysql"
+	"GoMysql"
 	"bufio"
 	"os"
 	"strings"
