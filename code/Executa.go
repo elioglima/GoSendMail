@@ -15,11 +15,49 @@ import (
 	"time"
 )
 
+var (
+	smtpClient *smtp.Client
+)
+
 /*
 
 	Instalador do banco de dados
 
 */
+
+func ConectarServidorSMTP(p *GoLibs.SendSMTPMailDadosST) error {
+
+	var err error
+
+	// Connect to the SMTP Server
+	// servername := "smtp.perfectvision.kinghost.net:587"
+	// "atendimento@perfectvision.kinghost.net"
+	logs.Atencao("Conectando SMTP", p.SMTP_Server)
+	host, _, _ := net.SplitHostPort(p.SMTP_Server)
+	auth := smtp.PlainAuth("", p.SMTP_Mail, p.SMTP_Senha, host)
+
+	// TLS config
+	tlsconfig := &tls.Config{
+		InsecureSkipVerify: true,
+		ServerName:         host,
+	}
+
+	smtpClient, err = smtp.Dial(p.SMTP_Server)
+	if err != nil {
+		logs.Erro("e-mail")
+		return err
+	}
+
+	smtpClient.StartTLS(tlsconfig)
+
+	// Auth
+	if err = smtpClient.Auth(auth); err != nil {
+		logs.Erro("e-mail")
+		return err
+	}
+
+	return nil
+}
 
 func Executa() {
 
@@ -27,10 +65,10 @@ func Executa() {
 	logs.Atencao("Iniciando Processo de execução.")
 
 	Params := GoMysql.ParamsConexaoST{}
-	Params.IP = "localhost"
+	Params.IP = "192.168.0.22"
 	Params.PORTA = 3306
 	Params.BANCO = "xpressapi"
-	Params.USUARIO = "root"
+	Params.USUARIO = "teste"
 	Params.SENHA = "AB@102030"
 
 	logs.Atencao("Iniciando biblioteca de conexão")
@@ -59,7 +97,7 @@ func Executa() {
 
 	for _, Result := range Results {
 
-		p := GoLibs.SendSMTPMailST{}
+		p := &GoLibs.SendSMTPMailDadosST{}
 
 		smtp_porta := GoMysql.ValueStr(Result, "smtp_porta")
 		p.SMTP_Server = GoMysql.ValueStr(Result, "smtp_servidor") + ":" + smtp_porta
@@ -102,58 +140,71 @@ func Executa() {
 		msg += "Content-Transfer-Encoding: 7bit\r\n"
 		msg += fmt.Sprintf("\r\n%s", p.Body+"\r\n")
 
-		// Connect to the SMTP Server
-		// servername := "smtp.perfectvision.kinghost.net:587"
-		// "atendimento@perfectvision.kinghost.net"
-		logs.Atencao("Conectando SMTP", p.SMTP_Server)
-		host, _, _ := net.SplitHostPort(p.SMTP_Server)
-		auth := smtp.PlainAuth("", p.SMTP_Mail, p.SMTP_Senha, host)
-
-		// TLS config
-		tlsconfig := &tls.Config{
-			InsecureSkipVerify: true,
-			ServerName:         host,
-		}
-
-		c, err := smtp.Dial(p.SMTP_Server)
-		if err != nil {
-			logs.Erro("e-mail")
+		if err := ConectarServidorSMTP(p); err != nil {
+			logs.Erro("ConectarServidorSMTP(", err)
 			return
 		}
 
-		c.StartTLS(tlsconfig)
-
-		// Auth
-		if err = c.Auth(auth); err != nil {
-			logs.Erro("e-mail")
-			return
-		}
-
-		defer c.Quit()
+		// defer c.Quit()
 
 		logs.Atencao("Preparando para envio")
 		for _, contato := range Rlistacontatos {
 
+			logs.Cyan("Iniciando envio")
+
 			// logs.Atencao("c.Mail(p.From.Address)", p.From.Address)
-			if err = c.Mail(p.From.Address); err != nil {
-				logs.Erro(err)
-				continue
+			if err = smtpClient.Mail(p.From.Address); err != nil {
+				logs.Erro("c.Mail(", err)
+				if err := ConectarServidorSMTP(p); err != nil {
+					logs.Erro("c.Mail(", err)
+					time.Sleep(3 * time.Second)
+					os.Exit(0)
+				}
+
+				time.Sleep(3 * time.Second)
+				if err = smtpClient.Mail(p.From.Address); err != nil {
+					logs.Erro("c.Mail(", err)
+					os.Exit(0)
+					continue
+				}
 			}
 
-			email := GoMysql.ValueStr(contato, "email")
+			email := strings.TrimSpace(strings.ToLower(GoMysql.ValueStr(contato, "email")))
 			// email = "diretoria@maxtime.info"
 			p.To = mail.Address{email, email}
 
+			if strings.Contains(p.To.Address, " ") {
+				sSQL := " delete from listaenvio "
+				sSQL += " where id = " + strconv.Itoa(GoMysql.ValueInt(contato, "id"))
+				if _, err := Conexao.Execute(sSQL); err != nil {
+					logs.Erro("Conexao.Execute(", err)
+				}
+				continue
+			}
+
 			logs.Atencao("c.Rcpt(p.To.Address)", p.To.Address)
-			if err = c.Rcpt(p.To.Address); err != nil {
+			if err = smtpClient.Rcpt(p.To.Address); err != nil {
 				logs.Erro("Rcpt", err)
 
 				if strings.Contains(strings.ToLower(err.Error()), "ultrapassou o limite") {
 					logs.Atencao("ultrapassou o limite")
-					time.Sleep(1 * time.Second)
+					time.Sleep(3 * time.Second)
 					os.Exit(0)
-				}
+				} else if strings.Contains(strings.ToLower(err.Error()), "bad recipient a") {
+					sSQL := " delete from listaenvio "
+					sSQL += " where id = " + strconv.Itoa(GoMysql.ValueInt(contato, "id"))
+					if _, err := Conexao.Execute(sSQL); err != nil {
+						logs.Erro(err)
+					}
 
+				} else if strings.Contains(strings.ToLower(err.Error()), "domain not found") {
+					sSQL := " delete from listaenvio "
+					sSQL += " where id = " + strconv.Itoa(GoMysql.ValueInt(contato, "id"))
+					if _, err := Conexao.Execute(sSQL); err != nil {
+						logs.Erro("delete from listaenvio", err)
+					}
+					logs.Atencao("Registro deletado")
+				}
 				continue
 			}
 
@@ -167,7 +218,7 @@ func Executa() {
 			}
 
 			logs.Atencao("Data")
-			w, err := c.Data()
+			w, err := smtpClient.Data()
 			if err != nil {
 				logs.Erro(err)
 				continue
