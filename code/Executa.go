@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
 )
 
 var (
@@ -60,15 +61,15 @@ func ConectarServidorSMTP(p *GoLibs.SendSMTPMailDadosST) error {
 }
 
 func Executa() {
-
+	// 8425
 	logs.DebugOrigem = false
 	logs.Atencao("Iniciando Processo de execução.")
 
 	Params := GoMysql.ParamsConexaoST{}
-	Params.IP = "192.168.0.22"
+	Params.IP = "localhost"
 	Params.PORTA = 3306
 	Params.BANCO = "xpressapi"
-	Params.USUARIO = "teste"
+	Params.USUARIO = "root"
 	Params.SENHA = "AB@102030"
 
 	logs.Atencao("Iniciando biblioteca de conexão")
